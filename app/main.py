@@ -6,12 +6,21 @@ import uuid
 import uvicorn
 import duckdb
 import pandas as pd
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Create tmp directory in the repo
 BASE_DIR = Path(__file__).parent.parent  # UAVLogViewer-AppServer/
 TMP_DIR = BASE_DIR / "tmp" / "uav_logs"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = BASE_DIR / "tmp" / "uav_logs.duckdb"
+
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 app = FastAPI(
@@ -110,6 +119,31 @@ def save_data(data: dict = Body(...)):
         "file_id": file_id, 
         "status": "normalized"
     }
+
+@app.post("/ask")
+def ask_question(question: str):
+    """
+    Ask a natural language question about a UAV log file.
+    """
+    try:
+        # Call GPT-5 to answer the question
+        response = openai_client.chat.completions.create(
+            model="gpt-5.1",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that answers questions about UAV flight logs."},
+                {"role": "user", "content": question}
+            ]
+        )
+        
+        answer = response.choices[0].message.content
+        
+        return {
+            "answer": answer
+        }
+    except Exception as e:
+        return {
+            "answer": f"Error: {str(e)}"
+        }
 
 
 if __name__ == "__main__":
