@@ -1,26 +1,17 @@
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
-import json
 import uuid
 import uvicorn
+import json
+
+# Import from our modules
+from config import openai_client, load_system_prompt, DB_PATH
+from ingestion import ingest_and_normalize
+from tools import list_available_tables, get_table_schema, query_sql
 import duckdb
-import pandas as pd
-import os
-from openai import OpenAI
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Create tmp directory in the repo
-BASE_DIR = Path(__file__).parent.parent  # UAVLogViewer-AppServer/
-TMP_DIR = BASE_DIR / "tmp" / "uav_logs"
-TMP_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = BASE_DIR / "tmp" / "uav_logs.duckdb"
-
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Global state - tracks the currently active file_id
+current_file_id = None
 
 
 app = FastAPI(
@@ -36,61 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def normalize_message_type(message_data: dict) -> pd.DataFrame:
-    """
-    Convert column-oriented message data to row-oriented DataFrame.
-    
-    Input: {"time_boot_ms": {"0": 100, "1": 200}, "Roll": {"0": 1.5, "1": 1.6}}
-    Output: DataFrame with columns [time_boot_ms, Roll, ...]
-    """
-    if not message_data:
-        return pd.DataFrame()
-    
-    # Convert each attribute from {index: value} to a list
-    data = {}
-    for field_name, field_values in message_data.items():
-        # Handle both dict format {"0": val, "1": val} and list format [val1, val2]
-        if isinstance(field_values, dict):
-            sorted_items = sorted(field_values.items(), key=lambda x: int(x[0]))
-            data[field_name] = [v for k, v in sorted_items]
-        elif isinstance(field_values, list):
-            data[field_name] = field_values
-        else:
-            # Skip non-dict, non-list values
-            continue
-    
-    return pd.DataFrame(data)
-
-def ingest_and_normalize(raw_data: dict, file_id: str):
-    """
-    Normalize the raw JSON and store in DuckDB.
-    Creates one table per message type.
-    """
-    conn = duckdb.connect(str(DB_PATH))
-    
-    messages = raw_data.get("messages", {})
-    
-    # Process each message type
-    for msg_type, msg_data in messages.items():
-        if msg_type == "FILE":  # Skip metadata
-            continue
-            
-        # Normalize to DataFrame
-        df = normalize_message_type(msg_data)
-        
-        if df.empty:
-            continue
-        
-        # Clean table name (replace brackets and hyphens, add prefix to avoid starting with number)
-        table_name = f"log_{file_id}_{msg_type}".replace("[", "_").replace("]", "_").replace("-", "_")
-        
-        # Store in DuckDB
-        conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df")
-        
-        print(f"✅ Created table {table_name} with {len(df)} rows")
-    
-    conn.close()
-
 
 # -- Routes --
 @app.get("/")
@@ -101,13 +37,56 @@ def read_root():
 def health():
     return {"status": "healthy"}
 
+@app.post("/reset")
+def reset_database():
+    """
+    Clear all tables from DuckDB and reset the current file_id.
+    Useful for starting fresh.
+    """
+    global current_file_id
+    
+    try:
+        conn = duckdb.connect(str(DB_PATH))
+        
+        # Get all table names
+        tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+        
+        if tables:
+            print(f"🗑️  Dropping {len(tables)} table(s)...")
+            # Drop all tables
+            for table in tables:
+                table_name = table[0]
+                conn.execute(f'DROP TABLE "{table_name}"')
+                print(f"  ✅ Dropped {table_name}")
+        else:
+            print("✅ Database was already empty")
+        
+        conn.close()
+        
+        # Reset the global file_id
+        current_file_id = None
+        
+        return {
+            "status": "reset",
+            "tables_dropped": len(tables),
+            "message": "Database cleared and file_id reset"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 @app.post("/upload")
 def save_data(data: dict = Body(...)):
+    global current_file_id
+    
     file_id = str(uuid.uuid4())
     
     # Normalize and store in DuckDB
     try:
         ingest_and_normalize(data, file_id)
+        current_file_id = file_id  # Set as the active file
         print(f"✅ Ingested and normalized log with file_id: {file_id}")
     except Exception as e:
         print(f"❌ Error normalizing data: {e}")
@@ -124,23 +103,163 @@ def save_data(data: dict = Body(...)):
 def ask_question(question: str):
     """
     Ask a natural language question about a UAV log file.
+    Uses the currently active file (most recent upload).
     """
+    global current_file_id
+    
+    # Check if a file has been uploaded
+    if not current_file_id:
+        return {
+            "answer": "No flight log file has been uploaded yet. Please upload a file first."
+        }
+    
     try:
-        # Call GPT-5 to answer the question
+        print(f"\n" + "="*60)
+        print(f"❓ User Question: {question}")
+        print(f"📁 Using file_id: {current_file_id}")
+        print("="*60)
+        
+        # Load system prompt from file
+        system_prompt = load_system_prompt()
+        
+        # Define tools for OpenAI function calling
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_available_tables",
+                    "description": "List all available data tables for the current flight log. Returns table names like log_<id>_ATT, log_<id>_GPS_0_, etc. Use this first to see what data is available.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_id": {
+                                "type": "string",
+                                "description": "The file ID of the uploaded log"
+                            }
+                        },
+                        "required": ["file_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_table_schema",
+                    "description": "Get the column names and data types for a specific table. Use this after listing tables to see what columns you can query.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "table_name": {
+                                "type": "string",
+                                "description": "The name of the table to get schema for (e.g., 'log_abc123_ATT')"
+                            }
+                        },
+                        "required": ["table_name"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_sql",
+                    "description": "Execute a SQL query on the flight log database. Use this to get actual data and answer questions. Always SELECT from specific tables you've discovered.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "sql": {
+                                "type": "string",
+                                "description": "The SQL query to execute (e.g., 'SELECT MAX(Alt) FROM log_abc123_GPS_0_')"
+                            }
+                        },
+                        "required": ["sql"]
+                    }
+                }
+            }
+        ]
+        
+        # Initial messages
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question}
+        ]
+        
+        # Call GPT-5.1 with tools
         response = openai_client.chat.completions.create(
             model="gpt-5.1",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that answers questions about UAV flight logs."},
-                {"role": "user", "content": question}
-            ]
+            messages=messages,
+            tools=tools,
+            tool_choice="auto"
         )
         
-        answer = response.choices[0].message.content
+        response_message = response.choices[0].message
+        tool_calls = response_message.tool_calls
+        
+        # If the agent wants to use tools, execute them
+        if tool_calls:
+            print(f"\n🧠 Agent wants to call {len(tool_calls)} tool(s):")
+            
+            # Add agent's response to messages
+            messages.append(response_message)
+            
+            # Execute each tool call
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+                
+                # Log what the agent is doing
+                print(f"\n🤖 Agent is calling: {function_name}")
+                print(f"📥 Arguments: {json.dumps(function_args, indent=2)}")
+                
+                # Execute the appropriate tool
+                if function_name == "list_available_tables":
+                    # Use current_file_id instead of what agent provides
+                    result = list_available_tables(current_file_id)
+                elif function_name == "get_table_schema":
+                    result = get_table_schema(function_args["table_name"])
+                elif function_name == "query_sql":
+                    # Special logging for SQL queries
+                    print(f"🔍 SQL Query: {function_args['sql']}")
+                    result = query_sql(function_args["sql"])
+                else:
+                    result = {"error": f"Unknown function: {function_name}"}
+                
+                # Log the result (truncate if too long)
+                result_str = json.dumps(result, indent=2)
+                if len(result_str) > 500:
+                    print(f"📤 Result (truncated): {result_str[:500]}...")
+                else:
+                    print(f"📤 Result: {result_str}")
+                
+                # Add tool result to messages
+                messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": json.dumps(result)
+                })
+            
+            # Call the agent again with tool results
+            print(f"\n🔄 Calling agent again with tool results...")
+            second_response = openai_client.chat.completions.create(
+                model="gpt-5.1",
+                messages=messages
+            )
+            
+            answer = second_response.choices[0].message.content
+        else:
+            # No tools needed, use direct response
+            print(f"\n💬 Agent responding directly (no tools needed)")
+            answer = response_message.content
+        
+        print(f"\n✅ Final Answer: {answer}")
+        print("="*60 + "\n")
         
         return {
             "answer": answer
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "answer": f"Error: {str(e)}"
         }
