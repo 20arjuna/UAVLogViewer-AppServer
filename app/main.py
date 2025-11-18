@@ -117,15 +117,18 @@ def ask_question(question: str, session_id: str):
     """
     global current_file_id
     
-    # Check if a file has been uploaded
-    if not current_file_id:
-        return {
-            "answer": "No flight log file has been uploaded yet. Please upload a file first."
-        }
-    
     def generate():
         """Generator for Server-Sent Events"""
         try:
+            # Check if a file has been uploaded
+            if not current_file_id:
+                message = "No flight log file has been uploaded yet. Please upload a file first."
+                # Stream the message token by token for consistency
+                for char in message:
+                    yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            
             # Get conversation history
             history = get_conversation(session_id)
             print(f"📚 Loaded {len(history)} messages from conversation history")

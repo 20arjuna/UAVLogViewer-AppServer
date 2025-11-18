@@ -23,7 +23,10 @@ This file has been uploaded and normalized into the database.
 The data is READY to query - do NOT ask the user to upload a file.
 
 When you call list_available_tables(), use file_id="{file_id}".
-Tables will be named like: log_{file_id.replace('-', '_')}_ATT, log_{file_id.replace('-', '_')}_GPS_0_, etc.
+Tables will be prefixed with: log_{file_id.replace('-', '_')}_
+
+The number of tables varies - could be many (ATT, GPS, BATT, etc.) or just one combined table.
+Work with WHATEVER tables you find - don't complain about missing tables.
 
 Start by calling list_available_tables() to see what data is available, then proceed with your analysis.
 """
@@ -73,9 +76,8 @@ def run_agent(question: str, file_id: str, history: list = None, max_iterations:
         max_iterations: Max tool calling iterations
     
     Yields events:
-    - {"type": "status", "message": "..."} during tool execution
-    - {"type": "token", "content": "..."} when streaming final answer
-    - {"type": "done"} when complete
+    - {"type": "token", "content": "..."} - streaming final answer tokens
+    - {"type": "done"} - stream complete
     """
     print(f"\n" + "="*60)
     print(f"❓ User Question: {question}")
@@ -117,7 +119,6 @@ def run_agent(question: str, file_id: str, history: list = None, max_iterations:
             # No tool calls = agent ready to give final answer
             # NOW stream the final answer
             print(f"\n✅ Agent providing final answer with streaming...")
-            yield {"type": "status", "message": "Formulating answer..."}
             
             # Re-call with streaming enabled for the final answer
             stream_response = openai_client.chat.completions.create(
@@ -139,7 +140,6 @@ def run_agent(question: str, file_id: str, history: list = None, max_iterations:
         # Agent wants to use tools - execute them
         tool_names = [tc.function.name for tc in response_message.tool_calls]
         print(f"\n🧠 Agent wants to call {len(response_message.tool_calls)} tool(s): {tool_names}")
-        yield {"type": "status", "message": f"Using tools: {', '.join(tool_names)}"}
         
         # Add agent's response to messages
         messages.append(response_message)
