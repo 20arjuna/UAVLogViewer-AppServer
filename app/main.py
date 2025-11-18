@@ -120,15 +120,6 @@ def ask_question(question: str, session_id: str):
     def generate():
         """Generator for Server-Sent Events"""
         try:
-            # Check if a file has been uploaded
-            if not current_file_id:
-                message = "No flight log file has been uploaded yet. Please upload a file first."
-                # Stream the message token by token for consistency
-                for char in message:
-                    yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                return
-            
             # Get conversation history
             history = get_conversation(session_id)
             print(f"📚 Loaded {len(history)} messages from conversation history")
@@ -136,7 +127,7 @@ def ask_question(question: str, session_id: str):
             # Save user's question
             save_message(session_id, "user", question)
             
-            # Stream agent response
+            # Stream agent response (file_id can be None - agent will handle it)
             assistant_content = ""
             for event in run_agent(question, current_file_id, history):
                 # Accumulate assistant response content

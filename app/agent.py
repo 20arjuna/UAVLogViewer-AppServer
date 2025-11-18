@@ -11,8 +11,9 @@ def build_system_prompt(file_id: str) -> str:
     """Build the system prompt with injected file_id"""
     system_prompt = load_system_prompt()
     
-    # Inject current file_id into the prompt so agent knows what to query
-    system_prompt += f"""
+    # Inject current session state based on whether a file is uploaded
+    if file_id:
+        system_prompt += f"""
 
 ==========================================
 CURRENT SESSION STATE
@@ -30,6 +31,33 @@ Work with WHATEVER tables you find - don't complain about missing tables.
 
 Start by calling list_available_tables() to see what data is available, then proceed with your analysis.
 """
+    else:
+        system_prompt += """
+
+==========================================
+CURRENT SESSION STATE
+==========================================
+NO FLIGHT LOG FILE UPLOADED YET
+
+The user has not uploaded any flight log data yet.
+
+YOU CAN STILL BE HELPFUL:
+- Answer general questions about ArduPilot, flight modes, telemetry, best practices
+- Explain concepts like GPS, IMU, EKF, flight modes (LOITER, RTL, AUTO, etc.)
+- Discuss common issues, troubleshooting approaches, log analysis techniques
+- Be friendly and educational!
+
+YOU CANNOT:
+- Use any tools (list_available_tables, get_table_schema, query_sql) - there's no data to query
+- Analyze specific flight data or provide actual numbers from logs
+- Make assumptions about their specific flight
+
+If they ask you to analyze flight data, politely tell them:
+"I'd love to analyze your flight data! To do that, please upload a flight log file (.bin or .tlog) using the file selector in the sidebar. Once uploaded, I can dive into the specifics!"
+
+Be warm, helpful, and show your expertise even without data to analyze.
+"""
+    
     return system_prompt
 
 
