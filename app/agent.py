@@ -62,45 +62,90 @@ def execute_tool(tool_call, file_id: str) -> dict:
     return result
 
 
-def run_agent(question: str, file_id: str) -> str:
+def run_agent(question: str, file_id: str, history: list = None, max_iterations: int = 10):
     """
-    Run the agent to answer a question.
-    NOTE: Current implementation only handles ONE round of tool calls.
+    Generator that streams agent responses.
+    
+    Args:
+        question: Current user question
+        file_id: Current file being analyzed
+        history: Previous conversation messages [{"role": "user", "content": "..."}, ...]
+        max_iterations: Max tool calling iterations
+    
+    Yields events:
+    - {"type": "status", "message": "..."} during tool execution
+    - {"type": "token", "content": "..."} when streaming final answer
+    - {"type": "done"} when complete
     """
     print(f"\n" + "="*60)
     print(f"❓ User Question: {question}")
     print(f"📁 Using file_id: {file_id}")
+    if history:
+        print(f"📚 Conversation history: {len(history)} messages")
     print("="*60)
     
     # Build system prompt with file_id context
     system_prompt = build_system_prompt(file_id)
     
-    # Initial messages
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question}
-    ]
+    # Build messages with conversation history
+    messages = [{"role": "system", "content": system_prompt}]
     
-    # Call GPT-5.1 with tools
-    response = openai_client.chat.completions.create(
-        model="gpt-5.1",
-        messages=messages,
-        tools=TOOL_DEFINITIONS,
-        tool_choice="auto"
-    )
+    # Add conversation history (if provided)
+    if history:
+        messages.extend(history)
     
-    response_message = response.choices[0].message
-    tool_calls = response_message.tool_calls
+    # Add current question
+    messages.append({"role": "user", "content": question})
     
-    # If the agent wants to use tools, execute them
-    if tool_calls:
-        print(f"\n🧠 Agent wants to call {len(tool_calls)} tool(s):")
+    # Agent loop - keep going until agent gives final answer or hits max iterations
+    for iteration in range(max_iterations):
+        print(f"\n🔄 Iteration {iteration + 1}/{max_iterations}")
+        
+        # Call GPT-5.1 with tools (no streaming during tool phase)
+        response = openai_client.chat.completions.create(
+            model="gpt-5.1",
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            tool_choice="auto",
+            stream=False
+        )
+        
+        response_message = response.choices[0].message
+        
+        # Check if agent wants to use tools
+        if not response_message.tool_calls:
+            # No tool calls = agent ready to give final answer
+            # NOW stream the final answer
+            print(f"\n✅ Agent providing final answer with streaming...")
+            yield {"type": "status", "message": "Formulating answer..."}
+            
+            # Re-call with streaming enabled for the final answer
+            stream_response = openai_client.chat.completions.create(
+                model="gpt-5.1",
+                messages=messages,
+                stream=True
+            )
+            
+            for chunk in stream_response:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    print(content, end="", flush=True)
+                    yield {"type": "token", "content": content}
+            
+            print("\n" + "="*60 + "\n")
+            yield {"type": "done"}
+            return
+        
+        # Agent wants to use tools - execute them
+        tool_names = [tc.function.name for tc in response_message.tool_calls]
+        print(f"\n🧠 Agent wants to call {len(response_message.tool_calls)} tool(s): {tool_names}")
+        yield {"type": "status", "message": f"Using tools: {', '.join(tool_names)}"}
         
         # Add agent's response to messages
         messages.append(response_message)
         
         # Execute each tool call
-        for tool_call in tool_calls:
+        for tool_call in response_message.tool_calls:
             result = execute_tool(tool_call, file_id)
             
             # Add tool result to messages
@@ -111,21 +156,12 @@ def run_agent(question: str, file_id: str) -> str:
                 "content": json.dumps(result)
             })
         
-        # Call the agent again with tool results
-        print(f"\n🔄 Calling agent again with tool results...")
-        second_response = openai_client.chat.completions.create(
-            model="gpt-5.1",
-            messages=messages
-        )
-        
-        answer = second_response.choices[0].message.content
-    else:
-        # No tools needed, use direct response
-        print(f"\n💬 Agent responding directly (no tools needed)")
-        answer = response_message.content
+        # Loop continues - agent will see tool results and decide next step
     
-    print(f"\n✅ Final Answer: {answer}")
+    # Hit max iterations without final answer
+    print(f"\n⚠️  Reached maximum iterations ({max_iterations})")
     print("="*60 + "\n")
-    
-    return answer
+    error_msg = f"I've reached the maximum number of analysis steps ({max_iterations}). Please try asking a more specific question or breaking it down into smaller parts."
+    yield {"type": "token", "content": error_msg}
+    yield {"type": "done"}
 
