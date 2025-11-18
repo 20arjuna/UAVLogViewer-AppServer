@@ -54,6 +54,62 @@ TOOL_DEFINITIONS = [
                 "required": ["sql"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "control_playback",
+            "description": "Control the 3D flight replay playback. Use this to play, pause, or change playback speed. Speed options: speed_0.5x (slow), speed_1x (normal), speed_1.5x, speed_2x (fast), speed_5x (very fast), speed_10x (max).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["play", "pause", "speed_0.5x", "speed_1x", "speed_1.5x", "speed_2x", "speed_5x", "speed_10x"],
+                        "description": "The playback action to perform"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "seek_to_timestamp",
+            "description": "Jump to a specific timestamp in the flight replay. Timestamp is in milliseconds from boot (time_boot_ms).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timestamp_ms": {
+                        "type": "integer",
+                        "description": "Timestamp in milliseconds from boot. E.g., 45000 for 45 seconds into flight."
+                    }
+                },
+                "required": ["timestamp_ms"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "seek_to_mode",
+            "description": "Jump to the first occurrence of a specific flight mode in the 3D replay. Common modes: QLAND (landing), LOITER (hold position), GUIDED (following commands), RTL (return to launch), CIRCLE.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "description": "The current file ID being analyzed"
+                    },
+                    "mode_name": {
+                        "type": "string",
+                        "description": "The flight mode name (e.g., 'QLAND', 'LOITER', 'RTL', 'CIRCLE', 'GUIDED')"
+                    }
+                },
+                "required": ["file_id", "mode_name"]
+            }
+        }
     }
 ]
 

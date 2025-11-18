@@ -3,7 +3,7 @@ Agent logic for processing questions with tool calling
 """
 import json
 from config import openai_client, load_system_prompt
-from tools import list_available_tables, get_table_schema, query_sql
+from tools import list_available_tables, get_table_schema, query_sql, control_playback, seek_to_timestamp, seek_to_mode
 from tool_registry import TOOL_DEFINITIONS
 
 
@@ -80,6 +80,12 @@ def execute_tool(tool_call, file_id: str) -> dict:
         # Special logging for SQL queries
         print(f"🔍 SQL Query: {function_args['sql']}")
         result = query_sql(function_args["sql"])
+    elif function_name == "control_playback":
+        result = control_playback(function_args["action"])
+    elif function_name == "seek_to_timestamp":
+        result = seek_to_timestamp(function_args["timestamp_ms"])
+    elif function_name == "seek_to_mode":
+        result = seek_to_mode(file_id, function_args["mode_name"])
     else:
         result = {"error": f"Unknown function: {function_name}"}
     
@@ -105,6 +111,7 @@ def run_agent(question: str, file_id: str, history: list = None, max_iterations:
     
     Yields events:
     - {"type": "token", "content": "..."} - streaming final answer tokens
+    - {"type": "command", "action": "...", "params": {...}} - UI control command
     - {"type": "done"} - stream complete
     """
     print(f"\n" + "="*60)
@@ -175,6 +182,11 @@ def run_agent(question: str, file_id: str, history: list = None, max_iterations:
         # Execute each tool call
         for tool_call in response_message.tool_calls:
             result = execute_tool(tool_call, file_id)
+            
+            # If tool result is a command, yield it to frontend immediately
+            if isinstance(result, dict) and result.get("type") == "command":
+                print(f"🎮 Yielding command to frontend: {result['action']}")
+                yield result
             
             # Add tool result to messages
             messages.append({
