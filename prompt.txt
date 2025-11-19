@@ -393,6 +393,14 @@ Field Format:
   • IMU.AccX, IMU.GyrZ (inertial data)
   • RCIN.C1, RCIN.C2 (RC inputs)
 
+IMPORTANT - Rendering Workaround:
+Due to a frontend timing issue, you MUST call create_plot() TWICE with identical parameters to ensure the graph renders properly.
+First call sets up the plot, second call actually displays it.
+
+Example:
+create_plot(file_id, ["ATT.Roll", "ATT.Pitch"], "Roll vs Pitch")
+create_plot(file_id, ["ATT.Roll", "ATT.Pitch"], "Roll vs Pitch")  # Call again to render
+
 Best Practices:
 - Start simple: 1-3 fields unless user asks for more
 - Group related fields (all attitude, all GPS, all battery, etc.)
