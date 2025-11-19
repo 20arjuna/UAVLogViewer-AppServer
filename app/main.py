@@ -145,7 +145,22 @@ def ask_question(question: str, session_id: str):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            
+            # Friendly error message based on error type
+            error_type = type(e).__name__
+            
+            if "RateLimitError" in error_type:
+                friendly_msg = "Oops! I'm thinking a bit too fast right now. 🤔 Give me a few seconds and try again?"
+            elif "APIError" in error_type or "APIConnectionError" in error_type:
+                friendly_msg = "Hmm, having trouble connecting to my brain right now. 🧠 Could you try that again?"
+            elif "AuthenticationError" in error_type:
+                friendly_msg = "Looks like there's an authentication issue on my end. Check the OpenAI API key configuration!"
+            else:
+                friendly_msg = "Whoops! Hit a slight hiccup there. 😅 Mind trying that again?"
+            
+            # Send as token so it renders nicely in chat
+            yield f"data: {json.dumps({'type': 'token', 'content': friendly_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
     
     return StreamingResponse(
         generate(),

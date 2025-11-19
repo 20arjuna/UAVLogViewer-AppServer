@@ -239,3 +239,98 @@ def seek_to_mode(file_id: str, mode_name: str) -> dict:
         conn.close()
         return {"error": f"Could not search for mode: {str(e)}"}
 
+
+def create_plot(file_id: str, fields: list, title: str = None) -> dict:
+    """
+    Create a time-series plot of specified fields.
+    
+    Args:
+        file_id: Current file being analyzed
+        fields: List of field paths like ["ATT.Roll", "GPS_0_.Alt", "BATT.Volt"]
+        title: Optional plot title (agent can be creative!)
+    
+    Returns:
+        Command dict for frontend to execute
+    
+    Examples:
+        create_plot(file_id, ["ATT.Roll", "ATT.Pitch"], "Roll vs Pitch")
+        create_plot(file_id, ["GPS_0_.Alt"], "Altitude Over Time")
+    """
+    conn = duckdb.connect(str(DB_PATH))
+    clean_file_id = file_id.replace("-", "_")
+    
+    valid_fields = []
+    field_info = []
+    
+    for field in fields:
+        # Parse "ATT.Roll" -> table: log_xxx_ATT, column: Roll
+        if '.' not in field:
+            print(f"⚠️ Invalid field format: {field} (expected 'TABLE.COLUMN')")
+            continue
+            
+        msg_type, column = field.split('.', 1)
+        table_name = f"log_{clean_file_id}_{msg_type}"
+        
+        # Check if table and column exist
+        try:
+            result = conn.execute(f'SELECT "{column}" FROM "{table_name}" LIMIT 1').fetchone()
+            valid_fields.append(field)
+            field_info.append({
+                "field": field,
+                "table": table_name,
+                "column": column
+            })
+            print(f"✓ Field {field} validated")
+        except Exception as e:
+            print(f"⚠️ Field {field} not found: {str(e)}")
+    
+    conn.close()
+    
+    if not valid_fields:
+        return {
+            "error": f"None of the requested fields exist. Available tables can be found using list_available_tables()."
+        }
+    
+    return {
+        "type": "command",
+        "action": "create_plot",
+        "params": {
+            "fields": valid_fields,
+            "field_info": field_info,
+            "title": title or "Flight Data"
+        }
+    }
+
+
+def toggle_ui(component: str, visible: bool) -> dict:
+    """
+    Toggle UI components on/off.
+    
+    Args:
+        component: One of "plot", "chatbot", "map"
+        visible: True to show, False to hide
+    
+    Returns:
+        Command dict for frontend to execute
+    
+    Examples:
+        toggle_ui("plot", False)  # Hide plot
+        toggle_ui("chatbot", False)  # Minimize chatbot
+        toggle_ui("map", True)  # Show 3D viewer
+    """
+    valid_components = ["plot", "chatbot", "map"]
+    
+    if component not in valid_components:
+        return {
+            "error": f"Invalid component '{component}'. Valid: {', '.join(valid_components)}"
+        }
+    
+    return {
+        "type": "command",
+        "action": "toggle_ui",
+        "params": {
+            "component": component,
+            "visible": visible
+        }
+    }
+

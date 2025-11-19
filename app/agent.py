@@ -3,7 +3,7 @@ Agent logic for processing questions with tool calling
 """
 import json
 from config import openai_client, load_system_prompt
-from tools import list_available_tables, get_table_schema, query_sql, control_playback, seek_to_timestamp, seek_to_mode
+from tools import list_available_tables, get_table_schema, query_sql, control_playback, seek_to_timestamp, seek_to_mode, create_plot, toggle_ui
 from tool_registry import TOOL_DEFINITIONS
 
 
@@ -62,39 +62,58 @@ Be warm, helpful, and show your expertise even without data to analyze.
 
 
 def execute_tool(tool_call, file_id: str) -> dict:
-    """Execute a single tool call"""
+    """Execute a single tool call with error handling"""
     function_name = tool_call.function.name
-    function_args = json.loads(tool_call.function.arguments)
     
-    # Log what the agent is doing
-    print(f"\n🤖 Agent is calling: {function_name}")
-    print(f"📥 Arguments: {json.dumps(function_args, indent=2)}")
-    
-    # Execute the appropriate tool
-    if function_name == "list_available_tables":
-        # Use current_file_id instead of what agent provides
-        result = list_available_tables(file_id)
-    elif function_name == "get_table_schema":
-        result = get_table_schema(function_args["table_name"])
-    elif function_name == "query_sql":
-        # Special logging for SQL queries
-        print(f"🔍 SQL Query: {function_args['sql']}")
-        result = query_sql(function_args["sql"])
-    elif function_name == "control_playback":
-        result = control_playback(function_args["action"])
-    elif function_name == "seek_to_timestamp":
-        result = seek_to_timestamp(function_args["timestamp_ms"])
-    elif function_name == "seek_to_mode":
-        result = seek_to_mode(file_id, function_args["mode_name"])
-    else:
-        result = {"error": f"Unknown function: {function_name}"}
-    
-    # Log the result (truncate if too long)
-    result_str = json.dumps(result, indent=2)
-    if len(result_str) > 500:
-        print(f"📤 Result (truncated): {result_str[:500]}...")
-    else:
-        print(f"📤 Result: {result_str}")
+    try:
+        function_args = json.loads(tool_call.function.arguments)
+        
+        # Log what the agent is doing
+        print(f"\n🤖 Agent is calling: {function_name}")
+        print(f"📥 Arguments: {json.dumps(function_args, indent=2)}")
+        
+        # Execute the appropriate tool
+        if function_name == "list_available_tables":
+            # Use current_file_id instead of what agent provides
+            result = list_available_tables(file_id)
+        elif function_name == "get_table_schema":
+            result = get_table_schema(function_args["table_name"])
+        elif function_name == "query_sql":
+            # Special logging for SQL queries
+            print(f"🔍 SQL Query: {function_args['sql']}")
+            result = query_sql(function_args["sql"])
+        elif function_name == "control_playback":
+            result = control_playback(function_args["action"])
+        elif function_name == "seek_to_timestamp":
+            result = seek_to_timestamp(function_args["timestamp_ms"])
+        elif function_name == "seek_to_mode":
+            result = seek_to_mode(file_id, function_args["mode_name"])
+        elif function_name == "create_plot":
+            result = create_plot(file_id, function_args["fields"], function_args.get("title"))
+        elif function_name == "toggle_ui":
+            result = toggle_ui(function_args["component"], function_args["visible"])
+        else:
+            result = {"error": f"Unknown function: {function_name}"}
+        
+        # Log the result (truncate if too long)
+        result_str = json.dumps(result, indent=2)
+        if len(result_str) > 500:
+            print(f"📤 Result (truncated): {result_str[:500]}...")
+        else:
+            print(f"📤 Result: {result_str}")
+            
+    except Exception as e:
+        # Tool crashed - log it and return error for agent to interpret
+        print(f"❌ Tool '{function_name}' crashed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return error dict - agent will translate this to friendly language
+        result = {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "tool": function_name
+        }
     
     return result
 

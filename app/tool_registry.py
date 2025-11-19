@@ -110,6 +110,54 @@ TOOL_DEFINITIONS = [
                 "required": ["file_id", "mode_name"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_plot",
+            "description": "Create a time-series graph plotting one or more fields from the flight log. Use this to visualize data trends, compare values, or highlight interesting moments. The frontend will display an interactive graph. Field format: 'TABLE.COLUMN' (e.g., 'ATT.Roll', 'GPS_0_.Alt').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "description": "The current file ID being analyzed"
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of fields to plot in format 'TABLE.COLUMN' (e.g., ['ATT.Roll', 'ATT.Pitch', 'GPS_0_.Alt']). Use table names from list_available_tables() without the 'log_xxx_' prefix."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional descriptive title for the plot (be creative and informative!)"
+                    }
+                },
+                "required": ["file_id", "fields"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_ui",
+            "description": "Show or hide UI components (plot, chatbot, or map) to manage screen space. Use when user wants to close/hide/show/maximize different parts of the interface.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "component": {
+                        "type": "string",
+                        "enum": ["plot", "chatbot", "map"],
+                        "description": "Which component to toggle: 'plot' (graph area), 'chatbot' (this chat interface), 'map' (3D Cesium viewer)"
+                    },
+                    "visible": {
+                        "type": "boolean",
+                        "description": "True to show the component, False to hide it"
+                    }
+                },
+                "required": ["component", "visible"]
+            }
+        }
     }
 ]
 
