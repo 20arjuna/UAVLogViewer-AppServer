@@ -7,11 +7,11 @@ import duckdb
 import json
 import os
 
-# Import from our modules
-from config import DB_PATH
-from ingestion import ingest_and_normalize
-from agent import run_agent
-from conversation import save_message, get_conversation, clear_all_conversations
+# Import from our modules (relative imports for package)
+from .config import DB_PATH
+from .ingestion import ingest_and_normalize
+from .agent import run_agent
+from .conversation import save_message, get_conversation, clear_all_conversations
 
 # Global state - tracks the currently active file_id
 current_file_id = None

@@ -3,7 +3,7 @@ Data ingestion and normalization functions for UAV logs
 """
 import duckdb
 import pandas as pd
-from config import DB_PATH
+from .config import DB_PATH
 
 
 

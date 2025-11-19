@@ -2,9 +2,9 @@
 Agent logic for processing questions with tool calling
 """
 import json
-from config import openai_client, load_system_prompt
-from tools import list_available_tables, get_table_schema, query_sql, control_playback, seek_to_timestamp, seek_to_mode, create_plot, toggle_ui
-from tool_registry import TOOL_DEFINITIONS
+from .config import openai_client, load_system_prompt
+from .tools import list_available_tables, get_table_schema, query_sql, control_playback, seek_to_timestamp, seek_to_mode, create_plot, toggle_ui
+from .tool_registry import TOOL_DEFINITIONS
 
 
 def build_system_prompt(file_id: str) -> str:

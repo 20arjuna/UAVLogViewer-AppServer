@@ -2,7 +2,7 @@
 Tool functions for the AI agent to interact with UAV log data
 """
 import duckdb
-from config import DB_PATH
+from .config import DB_PATH
 
 
 
