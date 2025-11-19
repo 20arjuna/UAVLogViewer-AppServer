@@ -5,6 +5,7 @@ import uuid
 import uvicorn
 import duckdb
 import json
+import os
 
 # Import from our modules
 from config import DB_PATH
@@ -22,9 +23,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Configure CORS - allows frontend to communicate with backend
+# In production, set CORS_ORIGINS env var to your frontend URL
+cors_origins = os.getenv("CORS_ORIGINS", "*")
+if cors_origins == "*":
+    allow_origins = ["*"]
+else:
+    allow_origins = [origin.strip() for origin in cors_origins.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=allow_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
