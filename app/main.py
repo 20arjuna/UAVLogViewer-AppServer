@@ -7,7 +7,7 @@ import duckdb
 import json
 import os
 
-# Import from our modules (relative imports for package)
+# Import from our modules
 from .config import DB_PATH
 from .ingestion import ingest_and_normalize
 from .agent import run_agent
